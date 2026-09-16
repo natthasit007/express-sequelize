@@ -1,33 +1,33 @@
 import { Sequelize, DataTypes } from "sequelize";
-//database connection
+// database connection
 import dotenv from "dotenv";
-import { Sequelize, DataTypes } from "sequelize";
-
 dotenv.config();
+//const sequelize = new Sequelize("product_db", "dev_user", "dev_password", {
+// host: "localhost",
+//  port: 5439,
+// dialect: "postgres",
+// logging: false,
+//});
 
-const isProduction =
-  process.env.NODE_ENV === "production" || process.env.RENDER;
+const dbName = process.env.PGDATABASE;
+const dbUser = process.env.PGUSER;
+const dbPassword = process.env.PGPASSWORD;
+const dbURL = process.env.PGHOST_UNPOOLED;
+const dbPort = process.env.PGPORT || 5432;
 
-const sequelize = new Sequelize(
-  process.env.PGDATABASE,
-  process.env.PGUSER,
-  process.env.PGPASSWORD,
-  {
-    host: process.env.PGHOST,
-    port: Number(process.env.PGPORT) || 5432,
-    dialect: "postgres",
-    logging: false,
-    dialectOptions: isProduction
-      ? {
-          ssl: {
-            require: true,
-            rejectUnauthorized: false, // ใช้ SSL เมื่อรันอยู่บน Render/Cloud
-          },
-        }
-      : {}, // ไม่ใช้ SSL เมื่อรันบน Local Docker
+const sequelize = new Sequelize(dbName, dbUser, dbPassword, {
+  host: dbURL,
+  port: dbPort,
+  dialect: "postgres",
+  logging: false,
+  dialectOptions: {
+    ssl: {
+      require: true,
+      rejectUnauthorized: false,
+    },
   },
-);
-
+});
+// define database schema
 const Product = sequelize.define("Product", {
   id: {
     type: DataTypes.INTEGER,
@@ -47,13 +47,12 @@ const Product = sequelize.define("Product", {
 const connectDB = async () => {
   try {
     await sequelize.authenticate();
-    console.log("Connected to PostgreSQL successfully!");
+    console.log("Connected to PostgreSQL!!");
     await sequelize.sync({ alter: true });
-    console.log("Table synchronized!");
+    console.log("Table syncronize !");
   } catch (error) {
-    console.error("Connection failed:", error);
+    console.error("Connection failed", error);
     process.exit(1);
   }
 };
-
 export { sequelize, Product, connectDB };
