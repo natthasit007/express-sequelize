@@ -1,18 +1,13 @@
 import { Sequelize, DataTypes } from "sequelize";
-// database connection
 import dotenv from "dotenv";
 dotenv.config();
-//const sequelize = new Sequelize("product_db", "dev_user", "dev_password", {
-// host: "localhost",
-//  port: 5439,
-// dialect: "postgres",
-// logging: false,
-//});
 
+// ใช้ PGHOST (pooled ผ่าน PgBouncer) แทน PGHOST_UNPOOLED
+// เพื่อป้องกันปัญหา "too many connections" บน serverless
 const dbName = process.env.PGDATABASE;
 const dbUser = process.env.PGUSER;
 const dbPassword = process.env.PGPASSWORD;
-const dbURL = process.env.PGHOST_UNPOOLED;
+const dbURL = process.env.PGHOST;
 const dbPort = process.env.PGPORT || 5432;
 
 const sequelize = new Sequelize(dbName, dbUser, dbPassword, {
@@ -26,7 +21,14 @@ const sequelize = new Sequelize(dbName, dbUser, dbPassword, {
       rejectUnauthorized: false,
     },
   },
+  pool: {
+    max: 1, // แต่ละ serverless instance ใช้ connection น้อยที่สุด
+    min: 0,
+    idle: 10000,
+    acquire: 30000,
+  },
 });
+
 // define database schema
 const Product = sequelize.define("Product", {
   id: {
@@ -44,15 +46,27 @@ const Product = sequelize.define("Product", {
   },
 });
 
+// ป้องกันการเชื่อมต่อซ้ำหลาย instance บน serverless (cache connection)
+let isConnected = false;
+
 const connectDB = async () => {
+  if (isConnected) return;
   try {
     await sequelize.authenticate();
     console.log("Connected to PostgreSQL!!");
-    await sequelize.sync({ alter: true });
-    console.log("Table syncronize !");
+
+    // sync/alter เฉพาะตอน dev เท่านั้น ไม่ควรรันทุก cold start บน production
+    if (process.env.NODE_ENV !== "production") {
+      await sequelize.sync({ alter: true });
+      console.log("Table synchronize!");
+    }
+
+    isConnected = true;
   } catch (error) {
     console.error("Connection failed", error);
-    process.exit(1);
+    // อย่า process.exit() บน serverless — โยน error กลับให้ผู้เรียกจัดการแทน
+    throw error;
   }
 };
+
 export { sequelize, Product, connectDB };

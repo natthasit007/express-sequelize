@@ -1,31 +1,49 @@
 import express from "express";
 import { Product, connectDB } from "./db.js";
 import cors from "cors";
+
 const app = express();
-const PORT = 5000;
 
 app.use(cors());
 app.use(express.json());
 
-connectDB();
+// เชื่อมต่อ DB ตอน module load (ถูก cache ข้าม invocation ถ้า instance ยังอุ่นอยู่)
+// ใช้ middleware กันไม่ให้ request เข้าไปทำงานก่อน connect เสร็จ
+let dbReady = connectDB().catch((err) => {
+  console.error("Initial DB connection failed:", err);
+});
+
+app.use(async (req, res, next) => {
+  try {
+    await dbReady;
+    next();
+  } catch (error) {
+    return res.status(500).json({ error: "Database connection failed" });
+  }
+});
 
 app.get("/", (req, res) => {
   return res
     .status(200)
     .send("<b>Welcome to My Restful API using Sequelize</b>");
 });
-//Create new product
+
+// Create new product
 app.post("/api/products", async (req, res) => {
   try {
     const { name, price } = req.body;
-    if (!name || !price) {
+    if (name === undefined || price === undefined) {
       return res
         .status(400)
         .json({ message: "Name and Price are required fields!!" });
     }
+    const numericPrice = Number(price);
+    if (Number.isNaN(numericPrice) || numericPrice < 0) {
+      return res.status(400).json({ message: "Price must be a valid non-negative number" });
+    }
     const newProduct = await Product.create({
-      name: name,
-      price: Number(price),
+      name,
+      price: numericPrice,
     });
     return res.status(201).json(newProduct);
   } catch (error) {
@@ -34,7 +52,7 @@ app.post("/api/products", async (req, res) => {
   }
 });
 
-//Get all products
+// Get all products
 app.get("/api/products", async (req, res) => {
   try {
     const products = await Product.findAll();
@@ -44,13 +62,10 @@ app.get("/api/products", async (req, res) => {
   }
 });
 
-//Get By Id
+// Get by ID
 app.get("/api/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    if (!id) {
-      return res.status(400).json({ message: "Product Id is required!!" });
-    }
     const product = await Product.findByPk(id);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
@@ -61,44 +76,47 @@ app.get("/api/products/:id", async (req, res) => {
   }
 });
 
-//Update product by ID
+// Update product by ID
 app.put("/api/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    if (!id) {
-      return res.status(400).json({ message: "Product Id is required!!" });
-    }
     const { name, price } = req.body;
-    if (!name && !price) {
+
+    if (name === undefined && price === undefined) {
       return res
         .status(400)
-        .json({ message: "Name and Price are required fields!!" });
+        .json({ message: "At least one of Name or Price is required!!" });
     }
+
     const product = await Product.findByPk(id);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
 
+    let numericPrice = product.price;
+    if (price !== undefined) {
+      numericPrice = Number(price);
+      if (Number.isNaN(numericPrice) || numericPrice < 0) {
+        return res.status(400).json({ message: "Price must be a valid non-negative number" });
+      }
+    }
+
     await product.update({
-      name: name || product.name,
-      price: Number(price) || product.price,
+      name: name !== undefined ? name : product.name,
+      price: numericPrice,
     });
-    console.log(product);
 
     return res.status(200).json(product);
   } catch (error) {
-    console.log(error);
+    console.error(error);
     return res.status(500).json({ error: error.message });
   }
 });
 
-//delete product by id
+// Delete product by ID
 app.delete("/api/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    if (!id) {
-      return res.status(400).json({ message: "Product Id is required!!" });
-    }
     const product = await Product.findByPk(id);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
@@ -112,6 +130,13 @@ app.delete("/api/products/:id", async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 });
-app.listen(PORT, () => {
-  console.log(`Server is running on: http://localhost:${PORT}`);
-});
+
+// รันแบบ local server เฉพาะตอนไม่ได้อยู่บน Vercel (Vercel จะ import default export แทน)
+if (process.env.VERCEL !== "1") {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(`Server is running on: http://localhost:${PORT}`);
+  });
+}
+
+export default app;
